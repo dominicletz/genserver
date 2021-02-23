@@ -68,12 +68,20 @@ created by github.com/dominicletz/genserver.New
 
 ## Note on runtime.GetGoID()
 
+By default the GenServer module is using https://github.com/petermattis/goid to get the goid for two uses:
+1) To make Self-calls safe, if the callers goid == the callee goid they can pass, preventing deadlocks by sending a message to one-self.
+2) Deadlock detection, to print the stacktrace of the correct goroutine
 If you don't have `runtime.GetGoID()` yet run the attached script: 
 
+If you're running on an arm32 or other seldom architecture petermattis/goid will fallback to a very slow method of getting the goid. In that case you can use the included script to inject a fast native goid accessor into your runtime:  
 ```
 > ./patch_runtime.sh
 ``` 
 
-It will add the `runtime.GetGoID()` call to your system. I might use the assembly hack from https://github.com/petermattis/goid in the future, but on arm32 it has a really slow fallback...
+Then compile your app with the additional tag `patch_runtime`. E.g. to test if this works you can compile the examples with:
+
+```
+> go build -tags patch_runtime,example  ./examples/*
+```
 
 
