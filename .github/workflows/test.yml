@@ -15,6 +15,6 @@ jobs:
         go-version: ${{ matrix.version }}
     - uses: actions/checkout@v2
     - run: ./patch_runtime.sh
-    - run: go mod tidy && git diff --exit-code go.mod go.sum
+    - run: go mod tidy && git diff --exit-code go.mod
     - run: go vet ./...
     - run: go test

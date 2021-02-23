@@ -1,4 +1,4 @@
-# genserver [![Build Status](https://github.com/dominicletz/genserver/workflows/CI/badge.svg) [![Go Report Card](https://goreportcard.com/badge/github.com/dominicletz/genserver)](https://goreportcard.com/report/github.com/dominicletz/genserver)
+# genserver ![Build](https://github.com/dominicletz/genserver/workflows/test/badge.svg) [![Go Report Card](https://goreportcard.com/badge/github.com/dominicletz/genserver)](https://goreportcard.com/report/github.com/dominicletz/genserver)
 
 Minimal actor model component GenServer inspired by this awesome [talk by Bryan Boreham](https://www.youtube.com/watch?v=yCbon_9yGVs) who complained about not having a library :-)
 
