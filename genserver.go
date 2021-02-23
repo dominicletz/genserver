@@ -50,7 +50,7 @@ func New(label string) *GenServer {
 		DeadlockCallback: DefaultDeadlockCallback,
 	}
 	go server.loop()
-	server.Call(func() { server.id = runtime.GetGoID() })
+	server.Call(func() { server.id = goroutineID() })
 	return server
 }
 
@@ -95,7 +95,7 @@ func (server *GenServer) Shutdown(lingerTimer time.Duration) {
 
 // Call executes a synchronous call operation
 func (server *GenServer) Call(fun func()) {
-	if server.id == runtime.GetGoID() {
+	if server.id == goroutineID() {
 		fun()
 		return
 	}

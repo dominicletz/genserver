@@ -14,7 +14,11 @@ jobs:
       with:
         go-version: ${{ matrix.version }}
     - uses: actions/checkout@v2
-    - run: ./patch_runtime.sh
-    - run: go mod tidy && git diff --exit-code go.mod
+    - run: go mod tidy && git diff --exit-code go.mod go.sum
     - run: go vet ./...
     - run: go test
+    - run: go build -tags example ./examples/*
+    - run: ./patch_runtime.sh
+    - run: go vet -tags patch_runtime ./...
+    - run: go test -tags patch_runtime
+    - run: go build -tags example,patch_runtime ./examples/*
