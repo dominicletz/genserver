@@ -100,10 +100,10 @@ func (server *GenServer) Call(fun func()) {
 		return
 	}
 	timer := time.NewTimer(server.DeadlockTimeout)
-	resultChan := make(chan bool)
+	done := make(chan bool)
 	server.cmdChan <- func() {
 		fun()
-		resultChan <- true
+		done <- true
 	}
 	select {
 	case <-timer.C:
@@ -122,10 +122,10 @@ func (server *GenServer) Call(fun func()) {
 			cb(server, trace)
 		}
 
-	case <-resultChan:
+	case <-done:
 		return
 	}
-	<-resultChan
+	<-done
 }
 
 // TryToCast is a non blocking send
