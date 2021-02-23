@@ -7,6 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        tags: [ 'none', 'patch_runtime' ]
         version: [ '1.15', '1.16' ]
     name: Go ${{ matrix.version }}
     steps:
@@ -14,11 +15,9 @@ jobs:
       with:
         go-version: ${{ matrix.version }}
     - uses: actions/checkout@v2
-    - run: go mod tidy && git diff --exit-code go.mod go.sum
-    - run: go vet ./...
-    - run: go test
-    - run: go build -tags example ./examples/*
     - run: ./patch_runtime.sh
-    - run: go vet -tags patch_runtime ./...
-    - run: go test -tags patch_runtime
-    - run: go build -tags example,patch_runtime ./examples/*
+      if: matrix.version == 'patch_runtime'
+    - run: go mod tidy && git diff --exit-code go.mod go.sum
+    - run: go vet -tags ${{ matrix.tags }} ./...
+    - run: go test -tags ${{ matrix.tags }}
+    - run: go build -tags -tags ${{ matrix.tags }},example ./examples/*
