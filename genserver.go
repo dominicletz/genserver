@@ -101,7 +101,7 @@ func (server *GenServer) Call(fun func()) {
 	}
 	timer := time.NewTimer(server.DeadlockTimeout)
 	// timer.Stop() see here for details on why
-        // https://medium.com/@oboturov/golang-time-after-is-not-garbage-collected-4cbc94740082
+	// https://medium.com/@oboturov/golang-time-after-is-not-garbage-collected-4cbc94740082
 	defer timer.Stop()
 	done := make(chan bool)
 	server.cmdChan <- func() {
