@@ -100,6 +100,7 @@ func (server *GenServer) Call(fun func()) {
 		return
 	}
 	timer := time.NewTimer(server.DeadlockTimeout)
+	defer timer.Stop()
 	done := make(chan bool)
 	server.cmdChan <- func() {
 		fun()
