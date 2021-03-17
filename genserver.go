@@ -120,7 +120,7 @@ func (server *GenServer) Call(fun func()) {
 		buf := make([]byte, 100000)
 		length := len(buf)
 		for length == len(buf) {
-			buf := make([]byte, len(buf)*2)
+			buf = make([]byte, len(buf)*2)
 			length = runtime.Stack(buf, true)
 		}
 		traces := strings.Split(string(buf[:length]), "\n\n")
