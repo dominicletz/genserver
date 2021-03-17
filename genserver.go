@@ -59,7 +59,10 @@ func DefaultDeadlockCallback(server *GenServer, trace string) {
 	if len(trace) > 0 {
 		fmt.Fprintf(os.Stderr, "GenServer WARNING timeout in %s\nGenServer stuck in\n%s\n", server.Name(), trace)
 	} else {
-		fmt.Fprintf(os.Stderr, "GenServer WARNING timeout in %s\nGenServer couldn't find stacktrace\n", server.Name())
+		buf := make([]byte, 100000)
+		length := runtime.Stack(buf, false)
+		trace = string(buf[:length])
+		fmt.Fprintf(os.Stderr, "GenServer WARNING timeout in %s\nGenServer couldn't find Server stacktrace\nClient Stacktrace:\n%s\n", server.Name(), trace)
 	}
 }
 
