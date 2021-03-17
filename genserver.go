@@ -56,7 +56,11 @@ func New(label string) *GenServer {
 
 // DefaultDeadlockCallback is the default handler for deadlock detection
 func DefaultDeadlockCallback(server *GenServer, trace string) {
-	fmt.Fprintf(os.Stderr, "GenServer WARNING timeout in %s\nGenServer stuck in\n%s\n", server.Name(), trace)
+	if len(trace) > 0 {
+		fmt.Fprintf(os.Stderr, "GenServer WARNING timeout in %s\nGenServer stuck in\n%s\n", server.Name(), trace)
+	} else {
+		fmt.Fprintf(os.Stderr, "GenServer WARNING timeout in %s\nGenServer couldn't find stacktrace\n", server.Name())
+	}
 }
 
 // Name returns the label and goid of this GenServer
@@ -110,9 +114,13 @@ func (server *GenServer) Call(fun func()) {
 	}
 	select {
 	case <-timer.C:
-		buf := make([]byte, 1000000)
-		len := runtime.Stack(buf, true)
-		traces := strings.Split(string(buf[:len]), "\n\n")
+		buf := make([]byte, 100000)
+		length := len(buf)
+		for length == len(buf) {
+			buf := make([]byte, len(buf)*2)
+			length = runtime.Stack(buf, true)
+		}
+		traces := strings.Split(string(buf[:length]), "\n\n")
 		prefix := fmt.Sprintf("goroutine %d ", server.id)
 		var trace string
 		for _, t := range traces {
