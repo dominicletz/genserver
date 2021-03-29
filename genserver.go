@@ -56,13 +56,18 @@ func New(label string) *GenServer {
 
 // DefaultDeadlockCallback is the default handler for deadlock detection
 func DefaultDeadlockCallback(server *GenServer, trace string) {
+	fmt.Fprint(os.Stderr, defaultErrorMessage(server, trace))
+}
+
+// DefaultDeadlockCallback is the default handler for deadlock detection
+func defaultErrorMessage(server *GenServer, trace string) string {
 	if len(trace) > 0 {
-		fmt.Fprintf(os.Stderr, "GenServer WARNING timeout in %s\nGenServer stuck in\n%s\n", server.Name(), trace)
+		return fmt.Sprintf("GenServer WARNING timeout in %s\nGenServer stuck in\n%s\n", server.Name(), trace)
 	} else {
 		buf := make([]byte, 100000)
 		length := runtime.Stack(buf, false)
 		trace = string(buf[:length])
-		fmt.Fprintf(os.Stderr, "GenServer WARNING timeout in %s\nGenServer couldn't find Server stacktrace\nClient Stacktrace:\n%s\n", server.Name(), trace)
+		return fmt.Sprintf("GenServer WARNING timeout in %s\nGenServer couldn't find Server stacktrace\nClient Stacktrace:\n%s\n", server.Name(), trace)
 	}
 }
 
@@ -101,12 +106,18 @@ func (server *GenServer) Shutdown(lingerTimer time.Duration) {
 }
 
 // Call executes a synchronous call operation
-func (server *GenServer) Call(fun func()) {
+func (server *GenServer) CallTimeout(fun func(), timeout time.Duration) error {
 	if server.id == goroutineID() {
 		fun()
-		return
+		return nil
 	}
-	timer := time.NewTimer(server.DeadlockTimeout)
+
+	var timer *time.Timer
+	if timeout == 0 {
+		timer = time.NewTimer(server.DeadlockTimeout)
+	} else {
+		timer = time.NewTimer(timeout)
+	}
 	// timer.Stop() see here for details on why
 	// https://medium.com/@oboturov/golang-time-after-is-not-garbage-collected-4cbc94740082
 	defer timer.Stop()
@@ -136,10 +147,23 @@ func (server *GenServer) Call(fun func()) {
 			cb(server, trace)
 		}
 
+		if timeout == 0 {
+			// Timeout is set to infinity, so we never return a timeout error
+			<-done
+			return nil
+		} else {
+			// There you timeout
+			return fmt.Errorf(defaultErrorMessage(server, trace))
+		}
+
 	case <-done:
-		return
+		return nil
 	}
-	<-done
+}
+
+// Call executes a synchronous call operation
+func (server *GenServer) Call(fun func()) {
+	server.CallTimeout(fun, 0)
 }
 
 // TryToCast is a non blocking send

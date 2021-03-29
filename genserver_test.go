@@ -76,3 +76,16 @@ func TestSelfCall(t *testing.T) {
 		t.Errorf("Self calls should be executed")
 	}
 }
+
+func TestTimeout(t *testing.T) {
+	srv := New("TimeoutClient")
+	result := make(chan bool, 1)
+	ret := srv.CallTimeout(func() {
+		time.Sleep(1 * time.Second)
+		result <- true
+	}, 100*time.Millisecond)
+
+	if ret == nil {
+		t.Errorf("Expected timeout message")
+	}
+}
