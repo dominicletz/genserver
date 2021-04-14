@@ -44,7 +44,7 @@ type GenServer struct {
 func New(label string) *GenServer {
 	server := &GenServer{
 		label:            label,
-		cmdChan:          make(chan func(), 10),
+		cmdChan:          make(chan func(), 100),
 		isShutdown:       false,
 		DeadlockTimeout:  30 * time.Second,
 		DeadlockCallback: DefaultDeadlockCallback,
@@ -112,49 +112,37 @@ func (server *GenServer) CallTimeout(fun func(), timeout time.Duration) error {
 		return nil
 	}
 
-	var timer *time.Timer
-	if timeout == 0 {
-		timer = time.NewTimer(server.DeadlockTimeout)
-	} else {
-		timer = time.NewTimer(timeout)
-	}
+	timer := server.makeTimer(timeout)
 	// timer.Stop() see here for details on why
 	// https://medium.com/@oboturov/golang-time-after-is-not-garbage-collected-4cbc94740082
 	defer timer.Stop()
+
 	done := make(chan bool)
-	server.cmdChan <- func() {
+	msg := func() {
 		fun()
 		done <- true
 	}
+
+	// Step 1 submitting message
+	select {
+	case server.cmdChan <- msg:
+		break
+	case <-timer.C:
+		err := server.handleTimeout()
+		if timeout != 0 {
+			return err
+		}
+	}
+
+	// Step 2 waiting for message to finish
 	select {
 	case <-timer.C:
-		buf := make([]byte, 100000)
-		length := len(buf)
-		for length == len(buf) {
-			buf = make([]byte, len(buf)*2)
-			length = runtime.Stack(buf, true)
+		err := server.handleTimeout()
+		if timeout != 0 {
+			return err
 		}
-		traces := strings.Split(string(buf[:length]), "\n\n")
-		prefix := fmt.Sprintf("goroutine %d ", server.id)
-		var trace string
-		for _, t := range traces {
-			if strings.HasPrefix(t, prefix) {
-				trace = t
-				break
-			}
-		}
-		if cb := server.DeadlockCallback; cb != nil {
-			cb(server, trace)
-		}
-
-		if timeout == 0 {
-			// Timeout is set to infinity, so we never return a timeout error
-			<-done
-			return nil
-		} else {
-			// There you timeout
-			return fmt.Errorf(defaultErrorMessage(server, trace))
-		}
+		<-done
+		return nil
 
 	case <-done:
 		return nil
@@ -178,5 +166,59 @@ func (server *GenServer) TryToCast(fun func()) bool {
 
 // Cast executes an asynchrounous operation
 func (server *GenServer) Cast(fun func()) {
-	server.cmdChan <- fun
+	server.CastTimeout(fun, 0)
+}
+
+// Cast executes an asynchrounous operation
+func (server *GenServer) CastTimeout(fun func(), timeout time.Duration) error {
+	if server.TryToCast(fun) {
+		return nil
+	}
+
+	timer := server.makeTimer(timeout)
+	// timer.Stop() see here for details on why
+	// https://medium.com/@oboturov/golang-time-after-is-not-garbage-collected-4cbc94740082
+	defer timer.Stop()
+
+	select {
+	case server.cmdChan <- fun:
+		return nil
+	case <-timer.C:
+		err := server.handleTimeout()
+		if timeout != 0 {
+			return err
+		}
+		server.cmdChan <- fun
+		return nil
+	}
+}
+
+func (server *GenServer) makeTimer(timeout time.Duration) *time.Timer {
+	if timeout == 0 {
+		return time.NewTimer(server.DeadlockTimeout)
+	}
+	return time.NewTimer(timeout)
+
+}
+
+func (server *GenServer) handleTimeout() error {
+	buf := make([]byte, 100000)
+	length := len(buf)
+	for length == len(buf) {
+		buf = make([]byte, len(buf)*2)
+		length = runtime.Stack(buf, true)
+	}
+	traces := strings.Split(string(buf[:length]), "\n\n")
+	prefix := fmt.Sprintf("goroutine %d ", server.id)
+	var trace string
+	for _, t := range traces {
+		if strings.HasPrefix(t, prefix) {
+			trace = t
+			break
+		}
+	}
+	if cb := server.DeadlockCallback; cb != nil {
+		cb(server, trace)
+	}
+	return fmt.Errorf(defaultErrorMessage(server, trace))
 }
