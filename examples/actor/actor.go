@@ -26,12 +26,12 @@ func (actor *Actor) DoSomething() {
 	})
 }
 
-// TryTo is a non-blocking send
+// Cast is a non-blocking send
 func (actor *Actor) TryTo() {
-	if actor.gen.TryToCast(func() { time.Sleep(100 * time.Millisecond) }) {
+	if actor.gen.Cast(func() { time.Sleep(100 * time.Millisecond) }) == nil {
 		fmt.Println("This worked!")
 	} else {
-		fmt.Println("The channel was full already")
+		fmt.Println("The actor is dead")
 	}
 }
 

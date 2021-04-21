@@ -77,6 +77,54 @@ func TestSelfCall(t *testing.T) {
 	}
 }
 
+type item struct {
+}
+
+type state struct {
+	srv            *GenServer
+	importantThing *item
+	waiters        []*Reply
+}
+
+func TestReply(t *testing.T) {
+	server := &state{
+		srv:            New("ReplyTest"),
+		importantThing: nil,
+	}
+
+	for i := 0; i < 10; i++ {
+		var result *item
+		done := make(chan struct{}, 1)
+		go func() {
+			time.Sleep(time.Duration(i%3) * time.Millisecond * 10)
+
+			server.srv.Call2(func(r *Reply) {
+				if server.importantThing != nil {
+					result = server.importantThing
+					r.Done()
+				} else {
+					server.waiters = append(server.waiters, r)
+				}
+			})
+			done <- struct{}{}
+		}()
+
+		time.Sleep(time.Duration(i%5) * time.Millisecond * 10)
+		server.srv.Call(func() {
+			server.importantThing = &item{}
+			for _, w := range server.waiters {
+				w.ReRun()
+			}
+			server.waiters = []*Reply{}
+		})
+
+		<-done
+		if result == nil {
+			t.Errorf("Result should be set")
+		}
+	}
+}
+
 func TestTimeout(t *testing.T) {
 	srv := New("TimeoutClient")
 	result := make(chan bool, 1)
@@ -87,5 +135,18 @@ func TestTimeout(t *testing.T) {
 
 	if ret == nil {
 		t.Errorf("Expected timeout message")
+	}
+}
+
+func TestDead(t *testing.T) {
+	srv := New("DeadClient")
+	srv.Shutdown(0)
+	// Because shutdown is delivered in a cast we use the first empty call to
+	// ensure the shutdown has been delivered
+	srv.Call(func() {})
+	ret := srv.Call(func() {})
+
+	if ret == nil {
+		t.Errorf("Expected dead message")
 	}
 }

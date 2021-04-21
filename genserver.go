@@ -13,9 +13,6 @@
 // permissions and limitations under the License. See the AUTHORS file
 // for names of contributors.
 
-// Package genserver is a set of actor model helper functions
-// https://www.gophercon.co.uk/videos/2016/an-actor-model-in-go/
-// Ensure all accesses are wrapped in port.cmdChan <- func() { ... }
 package genserver
 
 import (
@@ -32,11 +29,10 @@ type GenServer struct {
 	DeadlockTimeout  time.Duration
 	DeadlockCallback func(*GenServer, string)
 
-	label         string
-	id            int64
-	cmdChan       chan func()
-	isShutdown    bool
-	shutdownTimer *time.Timer
+	label      string
+	id         int64
+	cmdChan    *closeableChannel
+	isShutdown bool
 }
 
 // New creates a new genserver
@@ -44,7 +40,7 @@ type GenServer struct {
 func New(label string) *GenServer {
 	server := &GenServer{
 		label:            label,
-		cmdChan:          make(chan func(), 100),
+		cmdChan:          newChannel(),
 		isShutdown:       false,
 		DeadlockTimeout:  30 * time.Second,
 		DeadlockCallback: DefaultDeadlockCallback,
@@ -77,17 +73,8 @@ func (server *GenServer) Name() string {
 }
 
 func (server *GenServer) loop() {
-	for server.shutdownTimer == nil {
-		fun := <-server.cmdChan
+	for fun := server.cmdChan.recv(); fun != nil; fun = server.cmdChan.recv() {
 		fun()
-	}
-	for !server.isShutdown {
-		select {
-		case fun := <-server.cmdChan:
-			fun()
-		case <-server.shutdownTimer.C:
-			server.isShutdown = true
-		}
 	}
 	if server.Terminate != nil {
 		server.Terminate()
@@ -95,43 +82,55 @@ func (server *GenServer) loop() {
 }
 
 // Shutdown sends a shutdown signal to the server.
-// It will still operate for lingerTimer before stopping
-func (server *GenServer) Shutdown(lingerTimer time.Duration) {
-	server.Call(func() {
+// It will still operate for lingerTime before stopping
+func (server *GenServer) Shutdown(lingerTime time.Duration) {
+	server.Cast(func() {
 		if server.isShutdown {
 			return
 		}
-		server.shutdownTimer = time.NewTimer(lingerTimer)
+		server.isShutdown = true
+		if lingerTime == 0 {
+			server.cmdChan.close()
+		} else {
+			go func() {
+				time.Sleep(lingerTime)
+				server.cmdChan.close()
+			}()
+		}
 	})
 }
 
-// Call executes a synchronous call operation
-func (server *GenServer) CallTimeout(fun func(), timeout time.Duration) error {
-	if server.id == goroutineID() {
-		fun()
-		return nil
-	}
+type Reply struct {
+	fun  func(reply *Reply)
+	done chan bool
+}
 
+func (reply *Reply) Done() {
+	reply.done <- true
+}
+
+func (reply *Reply) ReRun() {
+	reply.fun(reply)
+}
+
+// Call executes a synchronous call operation
+func (server *GenServer) Call2(fun func(*Reply)) {
+	server.Call2Timeout(fun, 0)
+}
+
+// Call executes a synchronous call operation
+func (server *GenServer) Call2Timeout(fun func(*Reply), timeout time.Duration) error {
 	timer := server.makeTimer(timeout)
 	// timer.Stop() see here for details on why
 	// https://medium.com/@oboturov/golang-time-after-is-not-garbage-collected-4cbc94740082
 	defer timer.Stop()
 
-	done := make(chan bool)
-	msg := func() {
-		fun()
-		done <- true
-	}
+	reply := &Reply{fun: fun, done: make(chan bool, 1)}
+	msg := func() { fun(reply) }
 
 	// Step 1 submitting message
-	select {
-	case server.cmdChan <- msg:
-		break
-	case <-timer.C:
-		err := server.handleTimeout()
-		if timeout != 0 {
-			return err
-		}
+	if !server.cmdChan.send(msg) {
+		return fmt.Errorf("call to dead genserver")
 	}
 
 	// Step 2 waiting for message to finish
@@ -141,56 +140,39 @@ func (server *GenServer) CallTimeout(fun func(), timeout time.Duration) error {
 		if timeout != 0 {
 			return err
 		}
-		<-done
+		<-reply.done
 		return nil
 
-	case <-done:
+	case <-reply.done:
 		return nil
 	}
 }
 
 // Call executes a synchronous call operation
-func (server *GenServer) Call(fun func()) {
-	server.CallTimeout(fun, 0)
+func (server *GenServer) CallTimeout(fun func(), timeout time.Duration) error {
+	if server.id == goroutineID() {
+		fun()
+		return nil
+	}
+
+	// Executing the workload and then mark it as done
+	return server.Call2Timeout(func(reply *Reply) {
+		fun()
+		reply.Done()
+	}, timeout)
 }
 
-// TryToCast is a non blocking send
-func (server *GenServer) TryToCast(fun func()) bool {
-	select {
-	case server.cmdChan <- fun:
-		return true
-	default:
-		return false
-	}
+// Call executes a synchronous call operation
+func (server *GenServer) Call(fun func()) error {
+	return server.CallTimeout(fun, 0)
 }
 
 // Cast executes an asynchrounous operation
-func (server *GenServer) Cast(fun func()) {
-	server.CastTimeout(fun, 0)
-}
-
-// Cast executes an asynchrounous operation
-func (server *GenServer) CastTimeout(fun func(), timeout time.Duration) error {
-	if server.TryToCast(fun) {
-		return nil
+func (server *GenServer) Cast(fun func()) error {
+	if !server.cmdChan.send(fun) {
+		return fmt.Errorf("cast to dead genserver")
 	}
-
-	timer := server.makeTimer(timeout)
-	// timer.Stop() see here for details on why
-	// https://medium.com/@oboturov/golang-time-after-is-not-garbage-collected-4cbc94740082
-	defer timer.Stop()
-
-	select {
-	case server.cmdChan <- fun:
-		return nil
-	case <-timer.C:
-		err := server.handleTimeout()
-		if timeout != 0 {
-			return err
-		}
-		server.cmdChan <- fun
-		return nil
-	}
+	return nil
 }
 
 func (server *GenServer) makeTimer(timeout time.Duration) *time.Timer {
