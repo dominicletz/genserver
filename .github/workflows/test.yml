@@ -20,4 +20,5 @@ jobs:
     - run: go mod tidy && git diff --exit-code go.mod go.sum
     - run: go vet -tags ${{ matrix.tags }} ./...
     - run: go test -tags ${{ matrix.tags }}
+    - run: go test -tags ${{ matrix.tags }} -race
     - run: go build -tags ${{ matrix.tags }},example ./examples/*

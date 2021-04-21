@@ -20,6 +20,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -101,18 +102,19 @@ func (server *GenServer) Shutdown(lingerTime time.Duration) {
 }
 
 type Reply struct {
-	fun func(reply *Reply) bool
-	c   chan bool
+	lock sync.Mutex
+	fun  func(reply *Reply) bool
+	c    chan bool
 }
 
 func (reply *Reply) ReRun() {
-	if reply.c == nil {
+	if reply.fun == nil {
 		fmt.Printf("GenServer WARNING ReRun() called on already executed reply")
 		return
 	}
 	if reply.fun(reply) {
 		reply.c <- true
-		reply.c = nil
+		reply.fun = nil
 	}
 }
 
