@@ -101,32 +101,35 @@ func (server *GenServer) Shutdown(lingerTime time.Duration) {
 }
 
 type Reply struct {
-	fun  func(reply *Reply)
-	done chan bool
-}
-
-func (reply *Reply) Done() {
-	reply.done <- true
+	fun func(reply *Reply) bool
+	c   chan bool
 }
 
 func (reply *Reply) ReRun() {
-	reply.fun(reply)
+	if reply.c == nil {
+		fmt.Printf("GenServer WARNING ReRun() called on already executed reply")
+		return
+	}
+	if reply.fun(reply) {
+		reply.c <- true
+		reply.c = nil
+	}
 }
 
 // Call executes a synchronous call operation
-func (server *GenServer) Call2(fun func(*Reply)) {
+func (server *GenServer) Call2(fun func(*Reply) bool) {
 	server.Call2Timeout(fun, 0)
 }
 
 // Call executes a synchronous call operation
-func (server *GenServer) Call2Timeout(fun func(*Reply), timeout time.Duration) error {
+func (server *GenServer) Call2Timeout(fun func(*Reply) bool, timeout time.Duration) error {
 	timer := server.makeTimer(timeout)
 	// timer.Stop() see here for details on why
 	// https://medium.com/@oboturov/golang-time-after-is-not-garbage-collected-4cbc94740082
 	defer timer.Stop()
 
-	reply := &Reply{fun: fun, done: make(chan bool, 1)}
-	msg := func() { fun(reply) }
+	reply := &Reply{fun: fun, c: make(chan bool, 1)}
+	msg := func() { reply.ReRun() }
 
 	// Step 1 submitting message
 	if !server.cmdChan.send(msg) {
@@ -140,10 +143,10 @@ func (server *GenServer) Call2Timeout(fun func(*Reply), timeout time.Duration) e
 		if timeout != 0 {
 			return err
 		}
-		<-reply.done
+		<-reply.c
 		return nil
 
-	case <-reply.done:
+	case <-reply.c:
 		return nil
 	}
 }
@@ -156,9 +159,9 @@ func (server *GenServer) CallTimeout(fun func(), timeout time.Duration) error {
 	}
 
 	// Executing the workload and then mark it as done
-	return server.Call2Timeout(func(reply *Reply) {
+	return server.Call2Timeout(func(reply *Reply) bool {
 		fun()
-		reply.Done()
+		return true
 	}, timeout)
 }
 

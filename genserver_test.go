@@ -98,12 +98,13 @@ func TestReply(t *testing.T) {
 		go func() {
 			time.Sleep(time.Duration(i%3) * time.Millisecond * 10)
 
-			server.srv.Call2(func(r *Reply) {
+			server.srv.Call2(func(r *Reply) bool {
 				if server.importantThing != nil {
 					result = server.importantThing
-					r.Done()
+					return true
 				} else {
 					server.waiters = append(server.waiters, r)
+					return false
 				}
 			})
 			done <- struct{}{}
