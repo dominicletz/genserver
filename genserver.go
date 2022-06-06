@@ -107,6 +107,10 @@ type Reply struct {
 	c    chan bool
 }
 
+func (reply *Reply) Abort() {
+	reply.c <- false
+}
+
 func (reply *Reply) ReRun() {
 	if reply.fun == nil {
 		fmt.Printf("GenServer WARNING ReRun() called on already executed reply")
@@ -145,11 +149,17 @@ func (server *GenServer) Call2Timeout(fun func(*Reply) bool, timeout time.Durati
 		if timeout != 0 {
 			return err
 		}
-		<-reply.c
-		return nil
+		if <-reply.c {
+			return nil
+		}
+		return fmt.Errorf("genserver shutting down")
 
-	case <-reply.c:
-		return nil
+	case ret := <-reply.c:
+		if ret {
+			return nil
+		}
+		return fmt.Errorf("genserver shutting down")
+
 	}
 }
 
