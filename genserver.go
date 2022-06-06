@@ -174,6 +174,9 @@ func (server *GenServer) Call(fun func()) error {
 
 // Cast executes an asynchrounous operation
 func (server *GenServer) Cast(fun func()) error {
+	if fun == nil {
+		return fmt.Errorf("can't cast a nil value")
+	}
 	if !server.cmdChan.send(fun) {
 		return fmt.Errorf("cast to dead genserver")
 	}
