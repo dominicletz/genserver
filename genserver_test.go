@@ -139,6 +139,22 @@ func TestTimeout(t *testing.T) {
 	}
 }
 
+func TestReplyLabel(t *testing.T) {
+	srv := New("ReplyLabelServer")
+	ret := srv.Call2Timeout(func(r *Reply) bool {
+		r.SetLabel("AwaitingReplyLabel")
+		return false
+	}, 100*time.Millisecond)
+
+	if ret == nil {
+		t.Errorf("Expected timeout message")
+	}
+
+	if !strings.Contains(ret.Error(), "Label: AwaitingReplyLabel") {
+		t.Errorf("Expected timeout message to contain label")
+	}
+}
+
 func TestDead(t *testing.T) {
 	srv := New("DeadClient")
 	srv.Shutdown(0)

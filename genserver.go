@@ -20,9 +20,10 @@ import (
 	"os"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 )
+
+var anonymousReplyLabel = "<anonymous-reply>"
 
 // GenServer structure
 type GenServer struct {
@@ -58,14 +59,7 @@ func DefaultDeadlockCallback(server *GenServer, trace string) {
 
 // DefaultDeadlockCallback is the default handler for deadlock detection
 func defaultErrorMessage(server *GenServer, trace string) string {
-	if len(trace) > 0 {
-		return fmt.Sprintf("GenServer WARNING timeout in %s\nGenServer stuck in\n%s\n", server.Name(), trace)
-	} else {
-		buf := make([]byte, 100000)
-		length := runtime.Stack(buf, false)
-		trace = string(buf[:length])
-		return fmt.Sprintf("GenServer WARNING timeout in %s\nGenServer couldn't find Server stacktrace\nClient Stacktrace:\n%s\n", server.Name(), trace)
-	}
+	return fmt.Sprintf("GenServer WARNING timeout in %s\n%s\n", server.Name(), trace)
 }
 
 // Name returns the label and goid of this GenServer
@@ -102,9 +96,14 @@ func (server *GenServer) Shutdown(lingerTime time.Duration) {
 }
 
 type Reply struct {
-	lock sync.Mutex
-	fun  func(reply *Reply) bool
-	c    chan bool
+	fun    func(reply *Reply) bool
+	c      chan bool
+	rounds int
+	label  string
+}
+
+func (reply *Reply) SetLabel(label string) {
+	reply.label = label
 }
 
 func (reply *Reply) Abort() {
@@ -119,6 +118,8 @@ func (reply *Reply) ReRun() {
 	if reply.fun(reply) {
 		reply.c <- true
 		reply.fun = nil
+	} else {
+		reply.rounds++
 	}
 }
 
@@ -134,7 +135,7 @@ func (server *GenServer) Call2Timeout(fun func(*Reply) bool, timeout time.Durati
 	// https://medium.com/@oboturov/golang-time-after-is-not-garbage-collected-4cbc94740082
 	defer timer.Stop()
 
-	reply := &Reply{fun: fun, c: make(chan bool, 1)}
+	reply := &Reply{fun: fun, c: make(chan bool, 1), label: anonymousReplyLabel}
 	msg := func() { reply.ReRun() }
 
 	// Step 1 submitting message
@@ -145,7 +146,7 @@ func (server *GenServer) Call2Timeout(fun func(*Reply) bool, timeout time.Durati
 	// Step 2 waiting for message to finish
 	select {
 	case <-timer.C:
-		err := server.handleTimeout()
+		err := server.handleTimeout(reply)
 		if timeout != 0 {
 			return err
 		}
@@ -201,22 +202,50 @@ func (server *GenServer) makeTimer(timeout time.Duration) *time.Timer {
 
 }
 
-func (server *GenServer) handleTimeout() error {
+type TraceInfo struct {
+	traceLines []string
+}
+
+func buildTrace() TraceInfo {
 	buf := make([]byte, 100000)
 	length := len(buf)
 	for length == len(buf) {
 		buf = make([]byte, len(buf)*2)
 		length = runtime.Stack(buf, true)
 	}
-	traces := strings.Split(string(buf[:length]), "\n\n")
-	prefix := fmt.Sprintf("goroutine %d ", server.id)
-	var trace string
-	for _, t := range traces {
+	traceLines := strings.Split(string(buf[:length]), "\n\n")
+	return TraceInfo{
+		traceLines: traceLines,
+	}
+}
+
+func (ti *TraceInfo) getTrace(id int64) string {
+	prefix := fmt.Sprintf("goroutine %d ", id)
+
+	for _, t := range ti.traceLines {
 		if strings.HasPrefix(t, prefix) {
-			trace = t
-			break
+			return t + "\n"
 		}
 	}
+	return ""
+}
+
+func (server *GenServer) handleTimeout(reply *Reply) error {
+	info := buildTrace()
+	trace := ""
+
+	if reply.label != anonymousReplyLabel {
+		trace += fmt.Sprintf("Call-Label: %s\n", reply.label)
+	} else {
+		trace += fmt.Sprintf("Call-Stack: %s\n", info.getTrace(goroutineID()))
+	}
+
+	if reply.rounds > 0 {
+		trace += fmt.Sprintf("Awaiting %s since %d `return false` calls\n", reply.label, reply.rounds)
+	} else {
+		trace += fmt.Sprintf("Server-Stack: %s\n", info.getTrace(server.id))
+	}
+
 	if cb := server.DeadlockCallback; cb != nil {
 		cb(server, trace)
 	}
