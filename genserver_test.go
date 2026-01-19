@@ -16,6 +16,7 @@
 package genserver
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -152,6 +153,19 @@ func TestReplyLabel(t *testing.T) {
 
 	if !strings.Contains(ret.Error(), "Label: AwaitingReplyLabel") {
 		t.Errorf("Expected timeout message to contain label")
+	}
+}
+
+func TestReplyAbort(t *testing.T) {
+	srv := New("ReplyAbortServer")
+	ret := srv.Call2Timeout(func(r *Reply) bool {
+		r.Abort()
+		return false
+	}, 100*time.Millisecond)
+
+	fmt.Printf("ret: %v\n", ret)
+	if ret == nil {
+		t.Errorf("Expected timeout message")
 	}
 }
 

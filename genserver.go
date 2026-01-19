@@ -20,6 +20,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -100,27 +101,63 @@ type Reply struct {
 	c      chan bool
 	rounds int
 	label  string
+	mutex  sync.Mutex
 }
 
 func (reply *Reply) SetLabel(label string) {
+	reply.mutex.Lock()
+	defer reply.mutex.Unlock()
+
 	reply.label = label
 }
 
+func (reply *Reply) GetLabel() string {
+	reply.mutex.Lock()
+	defer reply.mutex.Unlock()
+
+	return reply.label
+}
+
 func (reply *Reply) Abort() {
-	reply.c <- false
+	reply.mutex.Lock()
+	defer reply.mutex.Unlock()
+
+	reply.fun = nil
+	select {
+	case reply.c <- false:
+	default:
+	}
 }
 
 func (reply *Reply) ReRun() {
+	reply.mutex.Lock()
+	defer reply.mutex.Unlock()
+
 	if reply.fun == nil {
 		fmt.Printf("GenServer WARNING ReRun() called on already executed reply")
 		return
 	}
-	if reply.fun(reply) {
-		reply.c <- true
+
+	reply.mutex.Unlock()
+	ret := reply.fun(reply)
+	reply.mutex.Lock()
+
+	if ret {
 		reply.fun = nil
+		select {
+		case reply.c <- true:
+		default:
+		}
 	} else {
 		reply.rounds++
 	}
+}
+
+func (reply *Reply) GetRounds() int {
+	reply.mutex.Lock()
+	defer reply.mutex.Unlock()
+
+	return reply.rounds
 }
 
 // Call executes a synchronous call operation
@@ -135,7 +172,7 @@ func (server *GenServer) Call2Timeout(fun func(*Reply) bool, timeout time.Durati
 	// https://medium.com/@oboturov/golang-time-after-is-not-garbage-collected-4cbc94740082
 	defer timer.Stop()
 
-	reply := &Reply{fun: fun, c: make(chan bool, 1), label: anonymousReplyLabel}
+	reply := &Reply{fun: fun, c: make(chan bool, 1), label: anonymousReplyLabel, mutex: sync.Mutex{}}
 	msg := func() { reply.ReRun() }
 
 	// Step 1 submitting message
@@ -234,14 +271,15 @@ func (server *GenServer) handleTimeout(reply *Reply) error {
 	info := buildTrace()
 	trace := ""
 
-	if reply.label != anonymousReplyLabel {
-		trace += fmt.Sprintf("Call-Label: %s\n", reply.label)
+	if reply.GetLabel() != anonymousReplyLabel {
+		trace += fmt.Sprintf("Call-Label: %s\n", reply.GetLabel())
 	} else {
 		trace += fmt.Sprintf("Call-Stack: %s\n", info.getTrace(goroutineID()))
 	}
 
-	if reply.rounds > 0 {
-		trace += fmt.Sprintf("Awaiting %s since %d `return false` calls\n", reply.label, reply.rounds)
+	rounds := reply.GetRounds()
+	if rounds > 0 {
+		trace += fmt.Sprintf("Awaiting %s since %d `return false` calls\n", reply.GetLabel(), rounds)
 	} else {
 		trace += fmt.Sprintf("Server-Stack: %s\n", info.getTrace(server.id))
 	}
