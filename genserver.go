@@ -16,6 +16,7 @@
 package genserver
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -223,5 +224,5 @@ func (server *GenServer) handleTimeout(reply *Reply) error {
 	if cb := server.DeadlockCallback; cb != nil {
 		cb(server, trace)
 	}
-	return fmt.Errorf(defaultErrorMessage(server, trace))
+	return errors.New(defaultErrorMessage(server, trace))
 }
