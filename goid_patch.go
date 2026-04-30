@@ -13,7 +13,7 @@
 // permissions and limitations under the License. See the AUTHORS file
 // for names of contributors.
 
-// +build runtime_patch
+//go:build runtime_patch
 
 package genserver
 
