@@ -217,9 +217,9 @@ func (server *GenServer) handleTimeout(reply *Reply) error {
 	rounds := reply.GetRounds()
 	if rounds > 0 {
 		trace += fmt.Sprintf("Awaiting %s since %d `return false` calls\n", reply.GetLabel(), rounds)
-	} else {
-		trace += fmt.Sprintf("Server-Stack: %s\n", info.getTrace(server.id))
 	}
+
+	trace += fmt.Sprintf("Server-Stack: %s\n", info.getTrace(server.id))
 
 	if cb := server.DeadlockCallback; cb != nil {
 		cb(server, trace)
